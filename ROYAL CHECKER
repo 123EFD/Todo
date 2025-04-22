@@ -1,0 +1,1192 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <cmath>
+#include <iomanip> 
+
+using namespace std;
+
+// --- Declarations ---
+
+// -- CONSTANTS --
+const int PIECE_EMPTY = 0;
+const int PIECE_WHITE_CHECKER = 1;
+const int PIECE_WHITE_SUPER_CHECKER = 2;
+const int PIECE_WHITE_KING = 9;
+const int PIECE_BLACK_CHECKER = -1;
+const int PIECE_BLACK_SUPER_CHECKER = -2;
+const int PIECE_BLACK_KING = -9;
+
+
+// Represents a position on the board (row, column)
+struct Position {
+    int row, col;
+};
+
+
+// Helper function to compare two Position objects
+bool positionsAreEqual(const Position& p1, const Position& p2) {
+    return p1.row == p2.row && p1.col == p2.col;
+}
+
+// Helper function declared here so it's visible to the whole file
+char pieceToChar(int p);
+
+class Board {
+public:
+    static const int SIZE = 8; // Board dimension (8x8)
+
+    // Constructor: Initializes the board to the starting state.
+    Board();
+
+    // Gets the piece at a specific position.
+    int getPiece(const Position& pos) const;
+
+    // Sets the piece at a specific position.
+    void setPiece(const Position& pos, int piece);
+
+    // Moves a piece from oldPos to newPos, handling captures.
+    // Returns true if a capture occurred, false otherwise.
+    bool movePiece(const Position& oldPos, const Position& newPos);
+
+    // Checks if a position is within the board boundaries
+    bool isOutOfBounds(const Position& pos) const;
+
+    // Checks if a square is empty
+    bool isEmpty(const Position& pos) const;
+
+    // Prints the current board state to the console.
+    void display() const;
+
+    // Creates a copy of the current board state
+    Board copy() const;
+
+private:
+    vector<vector<int>> grid; // 2D vector representing the board
+
+    // Helper to check for and handle promotion.
+    void checkPromotion(const Position& pos);
+};
+
+// Class managing the game state and rules
+class Game {
+    public:
+        // Constructor
+        Game();
+        // Starts the main game loop.
+        void run();
+        void reset(); // To reset the game
+
+    private:
+        Board board; // The game board
+        bool whiteTurn; // True if it's white's turn, false for black
+        bool check; // True if the current player's king is in check
+        Position kingInCheckPos; // Position of the king currently in check
+        bool checkmate; // True if the game has ended in checkmate
+        string endCaption; // Message to display at the end of the game
+        bool forceCaptureMode; // Is forced capture rule enabled?
+        Position selectedPiecePos; // Currently selected piece by the player (row=-1 if none)
+        vector<Position> validMoves; // Valid moves for the selected piece
+        vector<pair<Position, Position>> forceCaptureMoves; // List of forced captures
+
+        // Game Flow Methods
+        void playerTurn(); // Handles a single player's turn.
+        void displayGameState() const; // Prints the board and current status.
+        Position selectPiece(); // Prompts player to select a piece.
+        Position selectDestination(const Position& startPos); // Prompts player to select a destination.
+        bool makeMove(const Position& startPos, const Position& endPos); // Executes a move and updates game state.
+        void switchTurn(); // Changes the turn to the other player.
+
+        // Move Generation & Validation
+        vector<Position> generateValidMoves(const Position& pos); // Generates all valid moves for a piece
+        vector<Position> generateCheckerMoves(const Position& pos, int pieceType); // Valid moves for checkers
+        vector<Position> generateSuperCheckerMoves(const Position& pos, int pieceType); // Valid moves for super checkers
+        vector<Position> generateKingMoves(const Position& pos, int pieceType); // Valid moves for the king
+
+        // Check and Checkmate Logic
+        bool isKingInCheck(const Board& currentBoard, bool isWhiteKing); // Checks if the specified king is under attack
+        Position findKing(const Board& currentBoard, bool isWhiteKing) const; // Finds the king's position.
+        bool analyzeCheckmate(); // Determines if the current check situation is a checkmate
+        bool canBlockOrCaptureCheck(const Position& kingPos, const vector<Position>& attackingPieces); // (Helper for checkmate - more complex)
+        bool canKingEscape(const Position& kingPos); // (Helper for checkmate)
+        bool canPieceMoveToSafety(const Board& boardToCheck, bool turnToCheck); // Check if any piece move removes check
+
+
+        // Force Capture Logic
+        void checkForcedCaptures(); // Checks if any forced captures exist for the current player
+        bool isCapture(const Position& start, const Position& end) const; // Simple distance check for capture
+
+
+        // Input/Output Helpers
+        Position parseInput(const string& input) const; // Converts "A1", "H8" etc. to Position
+        string positionToString(const Position& pos) const; // Converts Position to "A1" etc.
+
+        // Helper to determine piece color/side
+        bool isWhitePiece(int p) const;
+        bool isBlackPiece(int p) const;
+        bool isSameColor(int p1, int p2) const;
+
+    };
+// --- Declarations END ---
+
+
+// --- Board Logic ---
+
+// Constructor: Initializes the board
+Board::Board() : grid(SIZE, vector<int>(SIZE, PIECE_EMPTY)) {
+    grid = {
+        {PIECE_EMPTY, PIECE_BLACK_CHECKER, PIECE_EMPTY, PIECE_BLACK_CHECKER, PIECE_BLACK_KING,   PIECE_BLACK_CHECKER, PIECE_EMPTY, PIECE_BLACK_CHECKER},
+        {PIECE_BLACK_CHECKER, PIECE_EMPTY, PIECE_BLACK_CHECKER, PIECE_EMPTY, PIECE_BLACK_CHECKER, PIECE_EMPTY, PIECE_BLACK_CHECKER, PIECE_EMPTY},
+        {PIECE_EMPTY, PIECE_BLACK_CHECKER, PIECE_EMPTY, PIECE_BLACK_CHECKER, PIECE_EMPTY, PIECE_BLACK_CHECKER, PIECE_EMPTY, PIECE_BLACK_CHECKER},
+        {PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY},
+        {PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY, PIECE_EMPTY},
+        {PIECE_WHITE_CHECKER, PIECE_EMPTY, PIECE_WHITE_CHECKER, PIECE_EMPTY, PIECE_WHITE_CHECKER, PIECE_EMPTY, PIECE_WHITE_CHECKER, PIECE_EMPTY},
+        {PIECE_EMPTY, PIECE_WHITE_CHECKER, PIECE_EMPTY, PIECE_WHITE_CHECKER, PIECE_EMPTY, PIECE_WHITE_CHECKER, PIECE_EMPTY, PIECE_WHITE_CHECKER},
+        {PIECE_WHITE_CHECKER, PIECE_EMPTY, PIECE_WHITE_CHECKER, PIECE_WHITE_KING,   PIECE_WHITE_CHECKER, PIECE_EMPTY, PIECE_WHITE_CHECKER, PIECE_EMPTY}
+    };
+}
+
+int Board::getPiece(const Position& pos) const {
+    if (isOutOfBounds(pos)) {
+        // Consider how to handle out-of-bounds access - maybe throw exception or return EMPTY
+        return PIECE_EMPTY; // Or handle error appropriately
+    }
+    return grid[pos.row][pos.col];
+}
+
+void Board::setPiece(const Position& pos, int piece) {
+    if (!isOutOfBounds(pos)) {
+        grid[pos.row][pos.col] = piece;
+    }
+    // Else: handle error or ignore
+}
+
+bool Board::movePiece(const Position& oldPos, const Position& newPos) {
+    if (isOutOfBounds(oldPos) || isOutOfBounds(newPos)) {
+        return false; // Invalid move
+    }
+
+    int piece = getPiece(oldPos);
+    if (piece == PIECE_EMPTY) {
+        return false; // Cannot move an empty square
+    }
+
+    // Determine if it's a capture move
+    int rowDiff = newPos.row - oldPos.row;
+    int colDiff = newPos.col - oldPos.col;
+    bool capture = abs(rowDiff) > 1 || abs(colDiff) > 1; // King capture or checker jump
+
+    // --- Capture Logic ---
+    if (capture) {
+        // Checkers/Super Checkers capture by jumping
+        if (piece == PIECE_WHITE_CHECKER || piece == PIECE_WHITE_SUPER_CHECKER ||
+            piece == PIECE_BLACK_CHECKER || piece == PIECE_BLACK_SUPER_CHECKER)
+        {
+            if (abs(rowDiff) == 2 && abs(colDiff) == 2) {
+                 Position capturedPos = {oldPos.row + rowDiff / 2, oldPos.col + colDiff / 2};
+                 if (!isOutOfBounds(capturedPos) && getPiece(capturedPos) != PIECE_EMPTY) {
+                      setPiece(capturedPos, PIECE_EMPTY);
+                 } else {
+                      return false; // Invalid jump
+                 }
+            } else {
+                 return false; // Invalid checker jump distance
+            }
+        }
+        // Kings capture by moving onto the piece's square
+        else if (piece == PIECE_WHITE_KING || piece == PIECE_BLACK_KING) {
+            // The valid move generation ensures this is a valid capture.
+        }
+    } // --- End Capture Logic ---
+
+
+    // Move the piece
+    setPiece(newPos, piece);
+    setPiece(oldPos, PIECE_EMPTY);
+
+    // Check for promotion after the move
+    checkPromotion(newPos);
+
+    return capture;
+}
+
+void Board::checkPromotion(const Position& pos) {
+    int piece = getPiece(pos);
+    // White checker reaches the back rank (row 0)
+    if (piece == PIECE_WHITE_CHECKER && pos.row == 0) {
+        setPiece(pos, PIECE_WHITE_SUPER_CHECKER); // Promote
+    }
+    // Black checker reaches the back rank (row 7)
+    else if (piece == PIECE_BLACK_CHECKER && pos.row == SIZE - 1) {
+        setPiece(pos, PIECE_BLACK_SUPER_CHECKER); // Promote
+    }
+}
+
+
+bool Board::isOutOfBounds(const Position& pos) const {
+    return pos.row < 0 || pos.row >= SIZE || pos.col < 0 || pos.col >= SIZE;
+}
+
+bool Board::isEmpty(const Position& pos) const {
+     if (isOutOfBounds(pos)) return false; // Out of bounds is not considered empty in typical game logic
+     return getPiece(pos) == PIECE_EMPTY;
+}
+
+Board Board::copy() const {
+     Board newBoard;
+     newBoard.grid = this->grid; // Deep copy the grid
+     return newBoard;
+}
+
+
+// Helper function to get the character representation of a piece
+char pieceToChar(int p) {
+    switch (p) {
+        case PIECE_WHITE_CHECKER: return 'w';
+        case PIECE_WHITE_SUPER_CHECKER: return 'W';
+        case PIECE_WHITE_KING: return 'K';
+        case PIECE_BLACK_CHECKER: return 'b';
+        case PIECE_BLACK_SUPER_CHECKER: return 'B';
+        case PIECE_BLACK_KING: return 'k';
+        case PIECE_EMPTY: return '.';
+        default: return '?'; // Should not happen
+    }
+}
+
+void Board::display() const {
+    cout << "\n   A B C D E F G H\n"; // File labels
+    cout << "  -----------------\n";
+    for (int r = 0; r < SIZE; ++r) {
+        cout << 8 - r << "|"; // Rank labels (reversed)
+
+        for (int c = 0; c < SIZE; ++c) {
+            cout << " " << pieceToChar(grid[r][c]);
+        }
+        cout << " |" << 8 - r << "\n"; // Rank labels (reversed)
+    }
+    cout << "  -----------------\n";
+    cout << "   A B C D E F G H\n\n"; // File labels
+}
+
+
+// --- Game Logic ---
+
+Game::Game() :
+    whiteTurn(true),          // White starts
+    check(false),
+    checkmate(false),
+    forceCaptureMode(true),
+    selectedPiecePos{-1, -1} // Indicate no piece selected initially
+     {
+    kingInCheckPos = {-1, -1}; // Initialize appropriately
+}
+
+// --- Input/Output Helpers ---
+
+// Converts "A1", "H8" etc. to Position {row, col}
+Position Game::parseInput(const string& input) const {
+    Position pos = {-1, -1}; // Invalid position default
+    if (input.length() == 2) {
+        char fileChar = toupper(input[0]);
+        char rankChar = input[1];
+
+        if (fileChar >= 'A' && fileChar <= 'H' && rankChar >= '1' && rankChar <= '8') {
+            pos.col = fileChar - 'A'; // 'A' -> 0, 'B' -> 1, ...
+            pos.row = 7 - (rankChar - '1'); // '1' -> 7, '2' -> 6, ...
+        }
+    }
+    return pos;
+}
+
+// Converts Position {row, col} to "A1" etc.
+string Game::positionToString(const Position& pos) const {
+    if (board.isOutOfBounds(pos)) {
+        return "??";
+    }
+    char fileChar = 'A' + pos.col;
+    char rankChar = '1' + (7 - pos.row);
+    string s;
+    s += fileChar;
+    s += rankChar;
+    return s;
+}
+
+// --- Piece Color Helpers ---
+bool Game::isWhitePiece(int p) const {
+    return p == PIECE_WHITE_CHECKER || p == PIECE_WHITE_SUPER_CHECKER || p == PIECE_WHITE_KING;
+}
+
+bool Game::isBlackPiece(int p) const {
+    return p == PIECE_BLACK_CHECKER || p == PIECE_BLACK_SUPER_CHECKER || p == PIECE_BLACK_KING;
+}
+
+// Checks if two pieces are of the same color (or both empty)
+bool Game::isSameColor(int p1, int p2) const {
+    if (p1 == PIECE_EMPTY || p2 == PIECE_EMPTY) return false; // Or true? Depends on definition. Assuming false.
+    return (isWhitePiece(p1) && isWhitePiece(p2)) || (isBlackPiece(p1) && isBlackPiece(p2));
+}
+
+// --- Game Flow ---
+
+void Game::displayGameState() const {
+    board.display();
+    cout << "Turn: " << (whiteTurn ? "White (w, W, K)" : "Black (b, B, k)") << endl;
+    if (check && !checkmate) {
+        cout << "*** CHECK ***" << endl;
+    }
+    if (checkmate) {
+        cout << "********************" << endl;
+        cout << endCaption << endl;
+        cout << "********************" << endl;
+    }
+     if (!forceCaptureMoves.empty() && forceCaptureMode) {
+         cout << "Forced capture available! You must capture." << endl;
+         // Optionally list the specific forced moves
+          cout << "Mandatory moves: ";
+          for(const auto& move_pair : forceCaptureMoves) {
+              cout << positionToString(move_pair.first) << " " << positionToString(move_pair.second) << "  ";
+          }
+          cout << endl;
+     }
+}
+
+Position Game::selectPiece() {
+    Position selectedPos = {-1, -1};
+    string input;
+    int selectedPiece = PIECE_EMPTY;
+
+    while (true) {
+        cout << "Select piece to move (e.g., A3): ";
+        cin >> input;
+        selectedPos = parseInput(input);
+
+        // Basic validation
+        if (board.isOutOfBounds(selectedPos)) {
+            cout << "Invalid input or out of bounds. Try again." << endl;
+            continue;
+        }
+
+        selectedPiece = board.getPiece(selectedPos);
+        if (selectedPiece == PIECE_EMPTY) {
+            cout << "Selected square is empty. Try again." << endl;
+            continue;
+        }
+
+        // Check if the piece belongs to the current player
+        if ((whiteTurn && !isWhitePiece(selectedPiece)) || (!whiteTurn && !isBlackPiece(selectedPiece))) {
+            cout << "Not your piece. Try again." << endl;
+            continue;
+        }
+
+        // --- Forced Capture Check ---
+        if (forceCaptureMode && !forceCaptureMoves.empty()) {
+            bool selected_is_forced = false;
+            for(const auto& forced_move : forceCaptureMoves) {
+                if (positionsAreEqual(forced_move.first, selectedPos)) {
+                    selected_is_forced = true;
+                    break;
+                }
+            }
+            if (!selected_is_forced) {
+                 cout << "You have a forced capture. You must select a piece that can capture (";
+                 // Show which pieces *can* capture
+                 vector<Position> forced_starters;
+
+                 for(const auto& fm : forceCaptureMoves) {
+                     // Avoid duplicates
+                     bool found = false;
+                     for(const auto& fs : forced_starters) {
+                         if(positionsAreEqual(fs, fm.first)) {
+                             found = true;
+                             break;
+                         }
+                     }
+                     if (!found) forced_starters.push_back(fm.first);
+                 }
+                 for(size_t i = 0; i < forced_starters.size(); ++i) {
+                     cout << positionToString(forced_starters[i]) << (i == forced_starters.size() - 1 ? "" : ", ");
+                 }
+                 cout << ")." << endl;
+                 continue; // Force player to re-select
+            }
+            // If a valid forced piece is selected, proceed
+        }
+
+        // Generate moves for the selected piece to see if it *can* move
+        validMoves = generateValidMoves(selectedPos); // This function now handles filtering based on check/forced capture
+        if (validMoves.empty()) {
+             cout << "Selected piece has no valid moves. Try again." << endl;
+             selectedPiecePos = {-1, -1}; // Reset selection state
+             continue;
+        }
+
+
+        // If all checks pass
+        selectedPiecePos = selectedPos; // Store the selected piece globally for the turn
+        cout << "Selected " << pieceToChar(selectedPiece) << " at " << input << ". Valid moves: ";
+        for(const auto& move : validMoves) {
+             cout << positionToString(move) << " ";
+        }
+         cout << endl;
+        return selectedPos; // Return the valid selected position
+    }
+}
+
+Position Game::selectDestination(const Position& startPos) {
+     Position endPos = {-1, -1};
+     string input;
+
+     while(true) {
+         cout << "Select destination for " << positionToString(startPos) << " (or type 'cancel'): ";
+         cin >> input;
+
+         if (input == "cancel") return {-1,-1}; // Allow canceling selection
+
+         endPos = parseInput(input);
+
+         if (board.isOutOfBounds(endPos)) {
+             cout << "Invalid input or out of bounds. Try again." << endl;
+             continue;
+         }
+
+         // Check if the chosen destination is in the list of valid moves
+         // validMoves should have been filtered already by generateValidMoves
+         bool moveIsValid = false;
+         for(const auto& validMove : validMoves) {
+             if (positionsAreEqual(validMove, endPos)) {
+                 moveIsValid = true;
+                 break;
+             }
+         }
+
+         if (!moveIsValid) {
+             cout << positionToString(endPos) << " is not a valid move for " << positionToString(startPos) << ". Valid moves are: ";
+             for(const auto& move : validMoves) {
+                  cout << positionToString(move) << " ";
+             }
+              cout << endl;
+             continue;
+         }
+
+         // If forced capture, ensure the selected move IS a capture move
+         // This check might be redundant if validMoves is correctly filtered, but adds safety
+         if (forceCaptureMode && !forceCaptureMoves.empty()) {
+             bool selected_is_capture = false;
+             for(const auto& forced_move : forceCaptureMoves) {
+                  // Check if the start matches the selected piece AND the end matches the destination
+                 if (positionsAreEqual(forced_move.first, startPos) && positionsAreEqual(forced_move.second, endPos)) {
+                      selected_is_capture = true;
+                      break;
+                  }
+              }
+              // This check ensures that IF forced moves exist AND the selected piece CAN capture,
+              // the chosen move MUST be one of the captures.
+              bool must_select_capture = false;
+              for(const auto& fm : forceCaptureMoves){
+                  if(positionsAreEqual(fm.first, startPos)) { must_select_capture = true; break;}
+              }
+
+              if (must_select_capture && !selected_is_capture) {
+                  cout << "You must make the forced capture move. Valid destinations are: ";
+                  for(const auto& forced_move : forceCaptureMoves) {
+                       if(positionsAreEqual(forced_move.first, startPos)) { // Only show destinations for the selected piece
+                            cout << positionToString(forced_move.second) << " ";
+                       }
+                   }
+                   cout << endl;
+                   continue;
+              }
+         }
+
+
+         return endPos; // Return the valid destination
+     }
+}
+
+// Simplified check for whether a move is a capture based on distance/target
+bool Game::isCapture(const Position& start, const Position& end) const {
+    int rowDiff = abs(start.row - end.row);
+    int colDiff = abs(start.col - end.col);
+
+    int movingPiece = board.getPiece(start);
+
+    // Checker/Super Checker capture (jump)
+    if (movingPiece == PIECE_WHITE_CHECKER || movingPiece == PIECE_BLACK_CHECKER ||
+        movingPiece == PIECE_WHITE_SUPER_CHECKER || movingPiece == PIECE_BLACK_SUPER_CHECKER) {
+        return rowDiff == 2 && colDiff == 2;
+    }
+    // King capture (moving onto occupied square)
+    else if (movingPiece == PIECE_WHITE_KING || movingPiece == PIECE_BLACK_KING) {
+        // Capture happens if the destination square is not empty AND occupied by opponent
+        int targetPiece = board.getPiece(end);
+        return targetPiece != PIECE_EMPTY && !isSameColor(movingPiece, targetPiece);
+    }
+    return false;
+}
+
+
+// Executes a move, handles capture chains, updates state
+bool Game::makeMove(const Position& startPos, const Position& endPos) {
+    bool wasCapture = board.movePiece(startPos, endPos);
+    int movedPiece = board.getPiece(endPos); // Piece is now at endPos
+
+    // --- Handle Checker/Super Checker Capture Chains ---
+    if (wasCapture && (movedPiece == PIECE_WHITE_CHECKER || movedPiece == PIECE_WHITE_SUPER_CHECKER ||
+                       movedPiece == PIECE_BLACK_CHECKER || movedPiece == PIECE_BLACK_SUPER_CHECKER))
+    {
+        // Check if the piece *just moved* can capture again from its new position
+        Position currentPos = endPos;
+        while(true) { // Loop for capture chain
+            // Generate only potential capture moves from the new position
+            vector<Position> potential_captures;
+            if (movedPiece == PIECE_WHITE_CHECKER || movedPiece == PIECE_BLACK_CHECKER) {
+                 potential_captures = generateCheckerMoves(currentPos, movedPiece);
+            } else { // Super checker
+                 potential_captures = generateSuperCheckerMoves(currentPos, movedPiece);
+            }
+
+            vector<Position> actual_capture_moves;
+            for (const auto& move : potential_captures) {
+                if (isCapture(currentPos, move)) { // Check only for captures
+                    // Ensure this capture doesn't put the king in check (if relevant, more complex)
+                    // For simplicity now, assume valid captures are allowed in chain
+                    actual_capture_moves.push_back(move);
+                }
+            }
+
+
+            if (actual_capture_moves.empty()) {
+                // No more captures possible in the chain
+                break; // Exit the chain loop
+            } else {
+                 // More captures are possible! Player must continue the chain.
+                 board.display(); // Show board after the first capture
+                 cout << "Capture chain! You must capture again with the piece at " << positionToString(currentPos) << "." << endl;
+                 cout << "Available captures: ";
+                 for(const auto& cap_move : actual_capture_moves) {
+                     cout << positionToString(cap_move) << " ";
+                 }
+                 cout << endl;
+
+                 validMoves = actual_capture_moves; // Update global valid moves for the next selection
+                 selectedPiecePos = currentPos; // Keep this piece selected
+
+                 Position nextDestination = selectDestination(currentPos); // Use selectDestination to get the next link
+                 if (nextDestination.row == -1) { // Player chose to cancel (shouldn't be allowed in strict rules)
+                     cout << "Cannot cancel during capture chain. Move sequence aborted." << endl;
+                     // This state might be problematic. Ideally, force selection.
+                      return false; // Indicate move sequence failed/aborted
+                 }
+
+                 // Make the next capture in the chain
+                 if (!board.movePiece(currentPos, nextDestination)) {
+                      // This should theoretically always be a capture if logic is right
+                      cerr << "Error: Expected capture in chain but movePiece returned false." << endl;
+                      return false; // Error state
+                 }
+                  // Update currentPos for the next iteration of the loop
+                 currentPos = nextDestination;
+                 // Piece might promote during chain, update movedPiece type
+                 movedPiece = board.getPiece(currentPos);
+
+                 // Promotion ends the chain turn immediately after promotion move
+                  if((movedPiece == PIECE_WHITE_SUPER_CHECKER && currentPos.row == 0) ||
+                    (movedPiece == PIECE_BLACK_SUPER_CHECKER && currentPos.row == Board::SIZE - 1)) {
+                     cout << "Promotion occurred during capture chain." << endl;
+                     // Let's assume promotion ends the turn's captures.
+                     break; // End chain after promotion
+                 }
+
+
+            }
+        } // End of capture chain while loop
+    } // --- End Checker Capture Chain Handling ---
+
+
+    // --- Post-Move State Updates ---
+    // Check if the move put the *opponent* in check
+    check = isKingInCheck(board, !whiteTurn); // Check opponent's king
+    if (check) {
+        kingInCheckPos = findKing(board, !whiteTurn); // Store opponent king's pos
+        // Analyze if this check is also checkmate for the opponent (whose turn it WILL be)
+        checkmate = analyzeCheckmate(); 
+        if (checkmate) {
+             endCaption = string("Checkmate! ") + (whiteTurn ? "White" : "Black") + " wins!"; //
+        } else {
+            // Just a check, not mate
+             cout << (whiteTurn ? "Black" : "White") << " is in check!" << endl;
+        }
+    } else {
+         // Assume no stalemate for now or add later.
+         kingInCheckPos = {-1, -1}; // Reset check position if no check
+         checkmate = false; // Can't be checkmate if not in check
+    }
+
+
+    // Clear selection state for the next turn
+    selectedPiecePos = {-1, -1};
+    validMoves.clear();
+    forceCaptureMoves.clear(); // Clear forced captures after a move is completed
+
+    // Only switch turn if the game is not over
+    if (!checkmate) {
+        switchTurn();
+        // Check for forced captures for the *new* current player
+         if(forceCaptureMode) {
+             checkForcedCaptures(); // Populate forceCaptureMoves for the next turn
+         }
+         // TODO: Add Stalemate check here: If !check && forceCaptureMoves.empty() && no other moves exist -> Stalemate
+    }
+
+
+    return true; // Move successful (including chain)
+}
+
+
+void Game::switchTurn() {
+    whiteTurn = !whiteTurn;
+}
+
+void Game::playerTurn() {
+    displayGameState(); // Show state at the start of the turn
+    Position startPos = {-1,-1};
+    Position endPos = {-1,-1};
+
+    // Check for immediate loss condition: In check with no valid moves
+    if(check) {
+        bool hasAnyValidMove = false;
+        for(int r=0; r<Board::SIZE; ++r){
+            for(int c=0; c<Board::SIZE; ++c){
+                Position currentPos = {r,c};
+                int currentPiece = board.getPiece(currentPos);
+                if(currentPiece != PIECE_EMPTY && ((whiteTurn && isWhitePiece(currentPiece)) || (!whiteTurn && isBlackPiece(currentPiece)))){
+                    if(!generateValidMoves(currentPos).empty()){ // generateValidMoves already filters for check
+                        hasAnyValidMove = true;
+                        break;
+                    }
+                }
+            }
+            if(hasAnyValidMove) break;
+        }
+        if(!hasAnyValidMove){
+            // This state should have been detected as checkmate by the opponent's move
+        }
+    }
+    // Similar check for stalemate (not in check, but no valid moves) could be added here.
+
+
+    while(true) { // Loop for selecting piece and destination
+        startPos = selectPiece(); // Includes generating/checking valid moves & forced captures
+        if (startPos.row == -1) continue; 
+
+        endPos = selectDestination(startPos); // Validates against the generated validMoves
+        if (endPos.row == -1) { // Player chose 'cancel'
+            cout << "Selection cancelled." << endl;
+            selectedPiecePos = {-1,-1}; // Clear selection
+            validMoves.clear();
+            continue; // Go back to selecting a piece
+        }
+
+        // If start and end positions are valid, break the selection loop
+        break;
+    }
+
+
+    // Make the move
+    if (!makeMove(startPos, endPos)) {
+         // Handle move failure (e.g., error during chain)
+         cerr << "Move failed unexpectedly." << endl;
+         // Potentially reset turn or handle error state, maybe exit?
+    }
+    // Game state (check, checkmate) is updated within makeMove
+}
+
+void Game::run() {
+    bool playing = true; // Loop control for playing multiple games
+
+    while (playing) { // Outer loop for Play Again feature
+        // Initial setup/reset is handled by reset() or constructor
+        if(forceCaptureMode) { checkForcedCaptures(); } 
+
+        while (!checkmate) {  // Inner loop for a single game
+            playerTurn(); 
+            if (checkmate) { // Exit inner loop immediately if checkmate occurs
+                break;
+            }
+            // Stalemate condition check could go here too
+        }
+
+        // --- Game Over ---
+        displayGameState(); // Display final board state and end message
+
+        // --- Play Again Prompt ---
+        char playAgainChoice = ' ';
+        while (playAgainChoice != 'y' && playAgainChoice != 'n') {
+            cout << "\nPlay Again? (y/n): ";
+            cin >> playAgainChoice;
+            playAgainChoice = tolower(playAgainChoice); // Convert to lowercase
+
+            // Clear the input buffer in case of invalid input
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+
+            if (playAgainChoice == 'y') {
+                reset(); // Reset the game state for a new game
+                // The outer 'while(playing)' loop will continue
+            } else if (playAgainChoice == 'n') {
+                playing = false; // Set flag to exit the outer loop
+            } else {
+                cout << "Invalid input. Please enter 'y' or 'n'." << endl;
+                // No need to clear cin again if ignore is used consistently
+            }
+        } // End of Play Again prompt loop
+
+    } // End of outer 'while(playing)' loop
+
+    cout << endl << "Thanks for playing!" << endl;
+}
+
+
+// --- Move Generation ---
+
+// Generates all valid moves for the piece at 'pos', considering check and forced captures.
+vector<Position> Game::generateValidMoves(const Position& pos) {
+    int piece = board.getPiece(pos);
+    vector<Position> potentialMoves;
+
+    // 1. Generate Pseudo-Legal Moves (Ignoring Check initially)
+    if (piece == PIECE_WHITE_CHECKER || piece == PIECE_BLACK_CHECKER) {
+        potentialMoves = generateCheckerMoves(pos, piece);
+    } else if (piece == PIECE_WHITE_SUPER_CHECKER || piece == PIECE_BLACK_SUPER_CHECKER) {
+        potentialMoves = generateSuperCheckerMoves(pos, piece);
+    } else if (piece == PIECE_WHITE_KING || piece == PIECE_BLACK_KING) {
+        potentialMoves = generateKingMoves(pos, piece); // King moves already consider not moving *into* check
+    }
+
+
+    // 2. Filter for Forced Captures (if applicable)
+     vector<Position> captureMovesOnly;
+     bool hasCapture = false;
+     if (forceCaptureMode && !forceCaptureMoves.empty()) {
+         bool thisPieceMustCapture = false;
+         for(const auto& fm : forceCaptureMoves) {
+             if (positionsAreEqual(fm.first, pos)) {
+                 thisPieceMustCapture = true;
+                 break;
+             }
+         }
+
+         if (thisPieceMustCapture) {
+             // If this piece *must* capture, filter potential moves to *only* include the forced captures for this piece
+             for (const auto& move : potentialMoves) {
+                 for(const auto& fm : forceCaptureMoves) {
+                    if (positionsAreEqual(fm.first, pos) && positionsAreEqual(fm.second, move)) {
+                        captureMovesOnly.push_back(move);
+                        hasCapture = true;
+                        break; // Found the matching forced move
+                    }
+                }
+             }
+             potentialMoves = captureMovesOnly; // Replace potential moves with only the allowed captures
+         } else {
+             // If other pieces have forced captures, but this one doesn't, this piece cannot move.
+             return {}; // Return empty list
+         }
+     }
+
+
+     // 3. Filter moves to ensure they resolve check (if the player is currently in check)
+     vector<Position> legalMoves;
+     if (check) {
+          Board tempBoard;
+          bool currentTurnIsWhite = isWhitePiece(piece); // Determine the color of the piece being moved
+
+          for (const auto& move : potentialMoves) { // Iterate through moves allowed after forced capture filter
+               tempBoard = board.copy(); // Create a copy to test the move
+               tempBoard.movePiece(pos, move); 
+               // Check if the current player's king is still in check after the move
+               if (!isKingInCheck(tempBoard, currentTurnIsWhite)) {
+                    legalMoves.push_back(move); // This move resolves the check
+               }
+          }
+          return legalMoves; // Return only moves that resolve the check
+     } else {
+         // If not in check, all moves remaining after the forced capture filter are legal
+         return potentialMoves;
+     }
+}
+
+
+// Generate moves for regular checkers
+vector<Position> Game::generateCheckerMoves(const Position& pos, int pieceType) {
+    vector<Position> moves;
+    int direction = (pieceType == PIECE_WHITE_CHECKER) ? -1 : 1; // White moves up (-1), Black moves down (+1)
+    int startRow = pos.row;
+    int startCol = pos.col;
+
+    // Possible move/capture columns relative to current position
+    int possibleCols[] = {-1, 1};
+
+    for (int dCol : possibleCols) {
+        // 1. Check simple forward diagonal move
+        Position movePos = {startRow + direction, startCol + dCol};
+        if (!board.isOutOfBounds(movePos) && board.isEmpty(movePos)) {
+             moves.push_back(movePos);
+        }
+
+        // 2. Check jump/capture diagonally forward
+        Position capturePos = {startRow + direction, startCol + dCol}; // The square with the opponent piece
+        Position landPos = {startRow + 2 * direction, startCol + 2 * dCol}; // Where the checker lands after capture
+
+        if (!board.isOutOfBounds(capturePos) && !board.isOutOfBounds(landPos) && board.isEmpty(landPos)) {
+            int capturedPiece = board.getPiece(capturePos);
+            // Must be opponent's piece AND cannot jump kings
+            if (capturedPiece != PIECE_EMPTY && !isSameColor(pieceType, capturedPiece) &&
+                capturedPiece != PIECE_WHITE_KING && capturedPiece != PIECE_BLACK_KING)
+            {
+                    moves.push_back(landPos);
+            }
+        }
+    }
+    return moves;
+}
+
+// Generate moves for super checkers (can move/capture any direction)
+vector<Position> Game::generateSuperCheckerMoves(const Position& pos, int pieceType) {
+    vector<Position> moves;
+    int startRow = pos.row;
+    int startCol = pos.col;
+
+    // All 8 directions (diagonal and orthogonal)
+    int directions[][2] = {
+        {-1, -1}, {-1, 1}, {1, -1}, {1, 1}, // Diagonals
+        {-1, 0}, {1, 0}, {0, -1}, {0, 1}   // Orthogonals
+    };
+
+    for (const auto& dir : directions) {
+        int dRow = dir[0];
+        int dCol = dir[1];
+        bool isDiagonal = (dRow != 0 && dCol != 0); // Check if it's a diagonal move
+
+        // 1. Check simple move (1 step)
+        Position movePos = {startRow + dRow, startCol + dCol};
+        if (!board.isOutOfBounds(movePos) && board.isEmpty(movePos)) {
+             moves.push_back(movePos);
+        }
+
+        // 2. Check capture (only diagonally)
+        if (isDiagonal) { // Captures are only diagonal
+            Position capturePos = {startRow + dRow, startCol + dCol}; // The square with the opponent piece
+            Position landPos = {startRow + 2 * dRow, startCol + 2 * dCol}; // Where the piece lands
+
+            if (!board.isOutOfBounds(capturePos) && !board.isOutOfBounds(landPos) && board.isEmpty(landPos)) {
+                int capturedPiece = board.getPiece(capturePos);
+                 // Can capture opponent checkers or super checkers, but not kings
+                 if (capturedPiece != PIECE_EMPTY && !isSameColor(pieceType, capturedPiece) &&
+                     capturedPiece != PIECE_WHITE_KING && capturedPiece != PIECE_BLACK_KING)
+                 {
+                    moves.push_back(landPos);
+                }
+            }
+        }
+    }
+    return moves;
+}
+
+
+// Generate moves for the King
+// It checks adjacent squares and ensures the king doesn't move into check.
+vector<Position> Game::generateKingMoves(const Position& pos, int pieceType) {
+    vector<Position> moves;
+    int startRow = pos.row;
+    int startCol = pos.col;
+    bool isWhiteKing = (pieceType == PIECE_WHITE_KING);
+
+    // Iterate through all 8 adjacent squares
+    for (int dRow = -1; dRow <= 1; ++dRow) {
+        for (int dCol = -1; dCol <= 1; ++dCol) {
+            if (dRow == 0 && dCol == 0) continue; // Skip the current square
+
+            Position targetPos = {startRow + dRow, startCol + dCol};
+
+            // Basic bounds check
+            if (board.isOutOfBounds(targetPos)) continue;
+
+            int targetPiece = board.getPiece(targetPos);
+
+            // Rule 1: Cannot move onto a square occupied by a friendly piece
+            if (targetPiece != PIECE_EMPTY && isSameColor(pieceType, targetPiece)) {
+                continue;
+            }
+
+            // Rule 2: Capture move check (can move onto square with opponent non-king)
+            bool isTargetOpponentNonKing = false;
+             if (targetPiece != PIECE_EMPTY && !isSameColor(pieceType, targetPiece)) {
+                 if (targetPiece == PIECE_WHITE_CHECKER || targetPiece == PIECE_BLACK_CHECKER ||
+                     targetPiece == PIECE_WHITE_SUPER_CHECKER || targetPiece == PIECE_BLACK_SUPER_CHECKER)
+                 {
+                      isTargetOpponentNonKing = true;
+                 } else {
+                      continue; // Cannot capture kings this way
+                 }
+             }
+
+  
+            // Simulate the move and check if the king would be in check on the target square.
+            Board tempBoard = board.copy();
+            // Simulate the move (whether capture or empty square)
+            tempBoard.setPiece(targetPos, pieceType); // Put king on target
+            tempBoard.setPiece(pos, PIECE_EMPTY); // Empty original square
+
+             // Check if the king is safe on the target square AFTER the simulated move
+            if (!isKingInCheck(tempBoard, isWhiteKing)) { // If the king is NOT in check after moving to targetPos
+                 moves.push_back(targetPos); // This is a valid move
+            }
+        }
+    }
+    return moves;
+}
+
+// --- Check and Checkmate Logic ---
+
+// Finds the king of the specified color on the board.
+Position Game::findKing(const Board& boardToCheck, bool isWhiteKing) const {
+    int kingToFind = isWhiteKing ? PIECE_WHITE_KING : PIECE_BLACK_KING;
+    for (int r = 0; r < Board::SIZE; ++r) {
+        for (int c = 0; c < Board::SIZE; ++c) {
+            if (boardToCheck.getPiece({r, c}) == kingToFind) {
+                return {r, c};
+            }
+        }
+    }
+    return {-1, -1}; // Should not happen in a valid game state
+}
+
+// Checks if the specified king is under attack on the given board state
+bool Game::isKingInCheck(const Board& boardToCheck, bool isWhiteKing) {
+    Position kingPos = findKing(boardToCheck, isWhiteKing);
+    if (kingPos.row == -1) return false; // King not found (error state?)
+
+    int friendlyKingPiece = isWhiteKing ? PIECE_WHITE_KING : PIECE_BLACK_KING;
+
+    // Iterate through all squares to find opponent pieces
+    for (int r = 0; r < Board::SIZE; ++r) {
+        for (int c = 0; c < Board::SIZE; ++c) {
+            Position attackerPos = {r, c};
+            int attackerPiece = boardToCheck.getPiece(attackerPos);
+
+            // Skip empty squares or friendly pieces
+            if (attackerPiece == PIECE_EMPTY || isSameColor(attackerPiece, friendlyKingPiece)) {
+                continue;
+            }
+
+            // Check if this opponent piece attacks the king's square
+            // 1. Check attacks from opponent Checkers
+            if (attackerPiece == PIECE_WHITE_CHECKER || attackerPiece == PIECE_BLACK_CHECKER) {
+                 int attackDir = (attackerPiece == PIECE_WHITE_CHECKER) ? -1 : 1; // White attacks up (-1), Black attacks down (+1)
+                 // Check if king is on a diagonal one step *forward* from the checker's perspective
+                 if ((kingPos.row == attackerPos.row + attackDir) && (abs(kingPos.col - attackerPos.col) == 1)) {
+                      return true; // Attacked diagonally by checker
+                 }
+                 // Check if king is horizontally or vertically adjacent
+                 bool horizontal_attack = (kingPos.row == attackerPos.row) && (abs(kingPos.col - attackerPos.col) == 1);
+                 bool vertical_attack = (kingPos.col == attackerPos.col) && (abs(kingPos.row - attackerPos.row) == 1);
+                 if (horizontal_attack || vertical_attack) {
+                    return true;
+                }
+            }
+            
+            // 2. Check attacks from opponent Super Checkers
+            else if (attackerPiece == PIECE_WHITE_SUPER_CHECKER || attackerPiece == PIECE_BLACK_SUPER_CHECKER) {
+                 int dRow = kingPos.row - attackerPos.row;
+                 int dCol = kingPos.col - attackerPos.col;
+                 // Super checker attacks if king is adjacent (dist 1) diagonally or orthogonally
+                 if (abs(dRow) <= 1 && abs(dCol) <= 1 && !(dRow == 0 && dCol == 0)) {
+                      // Path clearing isn't needed for adjacent attacks
+                      return true; // Attacked by super checker
+                 }
+            }
+            // 3. Check attacks from opponent King
+            else if (attackerPiece == PIECE_WHITE_KING || attackerPiece == PIECE_BLACK_KING) {
+                 int dRow = kingPos.row - attackerPos.row;
+                 int dCol = kingPos.col - attackerPos.col;
+                 // Kings attack adjacent squares
+                 if (abs(dRow) <= 1 && abs(dCol) <= 1 && !(dRow == 0 && dCol == 0)) {
+                      return true; // Attacked by king
+                 }
+            }
+        }
+    }
+
+    return false; // King is not in check
+}
+
+
+// Determines if the current check situation is a checkmate for the player whose turn it WILL be
+bool Game::analyzeCheckmate() {
+     // This function assumes 'check' is true for the player whose turn it was
+    if (!check) return false; // Should not be called if not in check
+
+    bool turnToCheck = !whiteTurn; // The player who is currently in check
+    Position kingPos = kingInCheckPos; // Position of the king in check
+
+    // If king position is invalid, something's wrong
+    if (kingPos.row == -1) {
+        cerr << "Error: analyzeCheckmate called with invalid king position." << endl;
+        return false;
+    }
+
+    int kingPiece = board.getPiece(kingPos);
+
+    // Can the king escape?
+    // Generate king's moves (which already check for safety/not moving into check)
+    vector<Position> escapeMoves = generateKingMoves(kingPos, kingPiece); // Use the correct king piece
+    if (!escapeMoves.empty()) {
+        return false; // King can escape, not checkmate
+    }
+
+
+    // Can any friendly piece block the check or capture the attacker?
+    if (canPieceMoveToSafety(board, turnToCheck)) {
+          return false; // Not checkmate
+     }
+
+
+    // If king cannot escape AND no piece can block/capture, it's checkmate
+    return true;
+}
+
+
+// Helper for checkmate analysis: Can any friendly piece move to make the king safe?
+// Checks moves for all pieces of 'turnIsWhite' color, excluding the king.
+bool Game::canPieceMoveToSafety(const Board& boardToCheck, bool turnIsWhite) {
+    int friendlyKing = turnIsWhite ? PIECE_WHITE_KING : PIECE_BLACK_KING;
+    int friendlyColorCheck = turnIsWhite ? 1 : -1; // Simple check for color sign
+
+    for (int r = 0; r < Board::SIZE; ++r) {
+        for (int c = 0; c < Board::SIZE; ++c) {
+            Position startPos = {r, c};
+            int piece = boardToCheck.getPiece(startPos);
+
+            // Consider only friendly pieces (excluding the king itself)
+            if (piece != PIECE_EMPTY && piece != friendlyKing && isSameColor(piece, friendlyKing)) {
+                 // Generate all pseudo-legal moves for this piece (ignore check for now)
+                 vector<Position> potentialMoves;
+                 if (piece == PIECE_WHITE_CHECKER || piece == PIECE_BLACK_CHECKER) {
+                      potentialMoves = generateCheckerMoves(startPos, piece);
+                 } else if (piece == PIECE_WHITE_SUPER_CHECKER || piece == PIECE_BLACK_SUPER_CHECKER) {
+                      potentialMoves = generateSuperCheckerMoves(startPos, piece);
+                 }
+                  // Kings handled separately by escape check
+
+                 // For each potential move, simulate it and see if the check is removed
+                 for (const auto& endPos : potentialMoves) {
+                     Board tempBoard = boardToCheck.copy();
+                     tempBoard.movePiece(startPos, endPos); // Simulate the move
+                     // Check if the king of the current player ('turnIsWhite') is safe after this move
+                     if (!isKingInCheck(tempBoard, turnIsWhite)) {
+                         // Found a move that resolves the check
+                         return true;
+                     }
+                 }
+            }
+        }
+    }
+    return false; // No friendly piece move could resolve the check
+}
+
+// Game reset logic
+void Game::reset() {
+    // Reset the board to the initial state
+    board = Board(); // Create a new default Board object
+
+    // Reset game state variables
+    whiteTurn = true;
+    check = false;
+    checkmate = false;
+    kingInCheckPos = {-1, -1};
+    selectedPiecePos = {-1, -1};
+    validMoves.clear();
+    forceCaptureMoves.clear();
+    endCaption = ""; // Clear the end game message
+
+    // Check for forced captures for the starting player (White)
+    if (forceCaptureMode) {
+        checkForcedCaptures();
+    }
+}
+
+
+// --- Force Capture Logic ---
+
+// Checks if any forced captures exist for the *current* player
+void Game::checkForcedCaptures() {
+    forceCaptureMoves.clear(); // Reset before checking
+
+    // Iterate through all squares to find pieces of the current player
+    for (int r = 0; r < Board::SIZE; ++r) {
+        for (int c = 0; c < Board::SIZE; ++c) {
+            Position startPos = {r, c};
+            int piece = board.getPiece(startPos);
+
+            // Check only pieces belonging to the current player
+            if (piece == PIECE_EMPTY || (whiteTurn && !isWhitePiece(piece)) || (!whiteTurn && !isBlackPiece(piece))) {
+                continue;
+            }
+
+             // Only Checkers and Super Checkers have forced jumps in standard rules.
+             // Kings capture differently. Focus on checker/super checker jumps.
+             if (piece == PIECE_WHITE_CHECKER || piece == PIECE_BLACK_CHECKER ||
+                 piece == PIECE_WHITE_SUPER_CHECKER || piece == PIECE_BLACK_SUPER_CHECKER)
+             {
+                 // Generate potential moves, then filter for captures (jumps)
+                 vector<Position> potential_moves;
+                 if (piece == PIECE_WHITE_CHECKER || piece == PIECE_BLACK_CHECKER)
+                    potential_moves = generateCheckerMoves(startPos, piece);
+                 else // Super Checker
+                    potential_moves = generateSuperCheckerMoves(startPos, piece);
+
+                 for(const auto& endPos : potential_moves) {
+                     // Check if the move is a capture (jump for checkers/super checkers)
+                     if (isCapture(startPos, endPos)) { // Uses distance check for jumps
+                          // We need to ensure this capture doesn't put the player's own king in check.
+                          Board tempBoard = board.copy();
+                          tempBoard.movePiece(startPos, endPos);
+                          if (!isKingInCheck(tempBoard, whiteTurn)) {
+                              forceCaptureMoves.push_back({startPos, endPos}); // Add valid capture
+                          }
+                     }
+                 }
+            }
+
+        }
+    }
+
+}
+
+
+// --- Main Loop ---
+
+int main() {
+    cout << "Welcome to Royal Checker (Console Version)!" << endl;
+    cout << "Presented by us The Royal Checker Group" << endl << endl;
+    cout << " --------- HOW TO PLAY -------- " << endl;
+    cout << " 1. This is a two player game" << endl;
+    cout << " 2. Your goal is to checkmate the enemy king (like in chess)" << endl;
+    cout << " 3. Enter in your starting piece coordinate and your destination to make a move" << endl;
+    cout << " 4. w = White Checker" << endl;
+    cout << "    W = White Superchecker " << endl;
+    cout << "    K = White King " << endl;
+    cout << "    b = Black Checker " << endl;
+    cout << "    B = Black Superchecker " << endl;
+    cout << "    k = Black King " << endl;
+    cout << "    . = Empty Space" << endl;
+    cout << " 5. Have fun and Stay hydrated!" << endl << endl;
+    cout << "Enter moves in algebraic notation (e.g., A3 B4). Type 'cancel' to reselect piece." << endl;
+
+
+    Game royalCheckerGame; // Create the game instance
+    royalCheckerGame.run(); // Start the game loop
+
+    return 0;
+} 
