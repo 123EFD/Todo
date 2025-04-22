@@ -1,0 +1,288 @@
+#include<iostream>
+#include<conio.h>       //Enables kbhit() and getch() for keyboard input.
+#include<dos.h>         //Enables delay() function for timing control.
+#include<stdlib.h>      //Enables system() function for clearing the console.
+#include<string.h>
+#include<windows.h>      //Allows console manipulation (cursor movement, colors).
+#include<time.h>        //Used for rand() to randomize pipe gaps.
+#include<vector>        // For storing quiz questions and answers.
+#include<limits>        // For clearing input buffer.
+
+#define SCREEN_WIDTH 90 // Total console width
+#define SCREEN_HEIGHT 26
+#define WIN_WIDTH 70    // Playable area width
+#define MENU_WIDTH 20
+#define GAP_SIZE 7      // Gap size between pipes
+#define PIPE_DIF 45
+
+using namespace std;
+
+HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE); // For console handle to manipulate console properties.
+COORD CursorPosition;                             // For cursor positioning in console.
+
+int pipePos[3]; //Tracks positions of pipes and their gaps.
+int gapPos[3];
+int pipeFlag[3]; // Flags to indicate if a pipe is active or not.
+char bird[2][6] = { '/','-','-','o','\\',' ',
+                    '|','_','_','_',' ','>' };
+int birdPos = 6; // Starts at row 6 (middle of the screen).
+int score = 0;
+int speed = 100; //Controls game loop delay (Sleep(speed)).
+
+void gotoxy(int x, int y) {     //Moves cursor to (x,y) for precise text placement.
+    CursorPosition.X = x;       //Sets X coordinate.
+    CursorPosition.Y = y;    
+    SetConsoleCursorPosition(console, CursorPosition); //Sets cursor position in console.
+}
+
+void setcursor(bool visible, DWORD size) {         //Sets cursor visibility and size.
+    if (size == 0)
+        size = 20;
+
+    CONSOLE_CURSOR_INFO lpCursor;                // Structure to hold cursor information.
+    lpCursor.bVisible = visible;                 // Sets visibility.
+    lpCursor.dwSize = size;                     // Sets size.
+    SetConsoleCursorInfo(console, &lpCursor);  // Applies the cursor settings to the console.
+}
+
+void drawBorder() { //Draws the border of the game area.
+    for (int i = 0; i < SCREEN_WIDTH; i++) {
+        gotoxy(i, 0); cout << "+";
+        gotoxy(i, SCREEN_HEIGHT); cout << "+";
+    }
+
+    for (int i = 0; i < SCREEN_HEIGHT; i++) {
+        gotoxy(0, i); cout << "+";
+        gotoxy(SCREEN_WIDTH, i); cout << "+";
+    }
+    for (int i = 0; i < SCREEN_HEIGHT; i++) {
+        gotoxy(WIN_WIDTH, i); cout << "+";
+    }
+}
+
+void genPipe(int ind) {             //Generates a random gap position for the pipe.
+    gapPos[ind] = 3 + rand() % 14; // Randomizes the gap position between 3 and 16.
+}
+
+void drawPipe(int ind) { //Draws the pipes on the screen.
+    if (pipeFlag[ind]) {
+        for (int i = 0; i < gapPos[ind]; i++) {
+            gotoxy(WIN_WIDTH - pipePos[ind], i + 1); cout << "***";
+        }
+        for (int i = gapPos[ind] + GAP_SIZE; i < SCREEN_HEIGHT - 1; i++) {
+            gotoxy(WIN_WIDTH - pipePos[ind], i + 1); cout << "***";
+        }
+    }
+}
+
+void erasePipe(int ind) { //Erases the pipes from the screen.
+    if (pipeFlag[ind]) {
+        for (int i = 0; i < gapPos[ind]; i++) {
+            gotoxy(WIN_WIDTH - pipePos[ind], i + 1); cout << "   ";
+        }
+        for (int i = gapPos[ind] + GAP_SIZE; i < SCREEN_HEIGHT - 1; i++) {
+            gotoxy(WIN_WIDTH - pipePos[ind], i + 1); cout << "   ";
+        }
+    }
+}
+
+void drawBird() { //Draws the bird on the screen.
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 6; j++) {
+            gotoxy(j + 2, i + birdPos); cout << bird[i][j];
+        }
+    }
+}
+
+void eraseBird() {
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 6; j++) {
+            gotoxy(j + 2, i + birdPos); cout << " ";
+        }
+    }
+}
+
+bool quizChallenge() {
+    // Fully clear the screen manually (alternative to system("cls"))
+    for (int y = 0; y < SCREEN_HEIGHT; ++y) {
+        gotoxy(0, y);
+        for (int x = 0; x < SCREEN_WIDTH; ++x)
+            cout << ' ';
+    }
+
+    gotoxy(0, 0); // Move cursor to top-left to start printing quiz
+
+    // Clear leftover characters in input buffer
+    cin.clear();
+    cin.ignore(numeric_limits<streamsize>::max(), '\n'); // Clear the input buffer
+
+    vector<string> questions = {
+        "Identify the compounds : CH3CHO:",
+        "What is the formula for electric field strength?",
+        "Which planet is known as the Red Planet?",
+        "What force pulls objects toward Earth?",
+        "What gas do plants absorb for photosynthesis?"
+    };
+    vector<string> answers = { "Acetaldehyde", "f/q", "Mars", "Gravity", "Carbon dioxide" };
+    // Add more questions and answers as needed
+
+    int qIndex = rand() % questions.size();
+    string ans;
+
+    cout << "\n================ QUIZ TIME ================\n";
+    cout << questions[qIndex] << "\n";
+    cout << "===========================================\n";
+    cout << "Enter your answer: ";
+
+    getline(cin, ans);
+
+    // Convert both user answer and correct answer to lowercase for comparison
+    for (char& c : ans) c = tolower(c); // Convert user answer to lowercase
+    for (char& c : answers[qIndex]) c = tolower(c);
+
+    return ans == answers[qIndex]; // Check if the answer is correct
+}
+
+
+
+int collision(int* pipeX, int* gapY) { //Checks for collision between bird and pipes.
+    if (*pipeX >= 61) {
+        if (birdPos < *gapY || birdPos > *gapY + GAP_SIZE) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void gameover() {        //Displays the game over screen.
+    system("cls");
+    cout << endl;
+    cout << "\t\t--------------------------" << endl;
+    cout << "\t\t-------- Game Over -------" << endl;
+    cout << "\t\t--------------------------" << endl << endl;
+    cout << "\t\tPress any key to go back to menu.";
+    getch();
+}
+
+void updateScore() {    //Updates the score on the HUD.
+    gotoxy(WIN_WIDTH + 7, 5); cout << "Score: " << score << endl;
+}
+
+void instructions() {    //Displays the instructions for the game.
+    system("cls");
+    cout << "Instructions";
+    cout << "\n----------------";
+    cout << "\n Press spacebar to make bird fly";
+    cout << "\n\nPress any key to go back to menu";
+    getch();
+}
+void drawHUD() {        //Draws the HUD on the right side of the screen.
+    drawBorder(); 
+    updateScore();
+
+    gotoxy(WIN_WIDTH + 5, 2); cout << "FLAPPY BIRD"; // Title
+    gotoxy(WIN_WIDTH + 6, 4); cout << "----------";
+    gotoxy(WIN_WIDTH + 6, 6); cout << "----------";
+    gotoxy(WIN_WIDTH + 7, 12); cout << "Control ";
+    gotoxy(WIN_WIDTH + 7, 13); cout << "-------- ";
+    gotoxy(WIN_WIDTH + 2, 14); cout << " Spacebar = jump";
+}
+
+void play() {       //Main game function.
+    birdPos = 6;
+    score = 0;
+    speed = 100;
+    pipeFlag[0] = 1;
+    pipeFlag[1] = 0;
+    pipePos[0] = pipePos[1] = 4;
+
+    system("cls");
+    genPipe(0);
+    drawHUD();
+;
+
+    gotoxy(10, 5); cout << "Press any key to start";
+    getch();
+    gotoxy(10, 5); cout << "                      ";
+
+    while (1) {
+        if (kbhit()) {
+            char ch = getch();
+            if (ch == 32 && birdPos > 3) birdPos -= 3; // Jump
+            if (ch == 27) break; // Exit
+        }
+    
+        drawBird();
+        drawPipe(0);
+        drawPipe(1);
+    
+        // Check collision with pipe 0
+        if (collision(&pipePos[0], &gapPos[0])) {
+            if (!quizChallenge()) {
+                gameover();
+                return;
+            } else {
+                system("cls");
+                birdPos = gapPos[0] + 1; // Reset bird position inside gap
+                pipePos[0] -= 5; // Move pipe back slightly
+                drawHUD();
+            }
+        }
+        
+
+        Sleep(speed);       // Control game speed
+        eraseBird();        // Erase bird from previous position
+        erasePipe(0);       // Erase first pipe
+        erasePipe(1);       
+        birdPos += 1;       // Move bird down
+
+        if (birdPos > SCREEN_HEIGHT - 2) {      // Check if bird hits the bottom
+            gameover();
+            return;
+        }
+
+        if (pipeFlag[0] == 1)          // Move first pipe down
+            pipePos[0] += 2;
+
+        if (pipeFlag[1] == 1)
+            pipePos[1] += 2;
+
+        if (pipePos[0] >= 40 && pipePos[0] < 42) {  // Check if first pipe is in range to generate second pipe
+            pipeFlag[1] = 1;
+            pipePos[1] = 4;
+            genPipe(1);
+        }
+        if (pipePos[0] > 68) {      
+            score++;
+            updateScore();
+            if (score % 7 == 0 && speed > 30) speed -= 10;      // Increase speed every 7 points
+            pipeFlag[1] = 0;
+            pipePos[0] = pipePos[1];
+            gapPos[0] = gapPos[1];
+        }
+    }
+}
+
+int main() {
+    setcursor(0, 0);            // Hide the cursor
+    srand((unsigned)time(NULL));// Seed for random number generation
+
+    do {
+        system("cls");           // Clear the console
+        gotoxy(10, 5); cout << " -------------------------- ";
+        gotoxy(10, 6); cout << " |      Flappy Bird       | ";
+        gotoxy(10, 7); cout << " --------------------------";
+        gotoxy(10, 9); cout << "1. Start Game";
+        gotoxy(10, 10); cout << "2. Instructions";
+        gotoxy(10, 11); cout << "3. Quit";
+        gotoxy(10, 13); cout << "Select option: ";
+        char op = getche();     // Get user input for menu option
+
+        if (op == '1') play();
+        else if (op == '2') instructions();
+        else if (op == '3') exit(0);
+
+    } while (1);
+
+    return 0;
+}
